@@ -18,10 +18,9 @@ LR_A = 0.001   # learning rate for actor
 LR_C = 0.01   # learning rete for critic
 
 
-env = gym.make('CartPole-v0')
-env.seed(1)   # reproducible
-env = env.unwrapped
+env = gym.make('CartPole-v0', render_mode="human")
 
+env = env.unwrapped
 
 N_F = env.observation_space.shape[0]
 N_A = env.action_space.n
@@ -96,13 +95,14 @@ class Critic(object):
 		s, s_ = torch.Tensor(s[np.newaxis, :]), torch.Tensor(s_[np.newaxis, :])
 		v, v_ = self.critic_net(s), self.critic_net(s_)
 		td_error = r + GAMMA * v_ - v
+		rd_error_r = td_error.detach() # 需要detach，否则actor使用同一个变量做反向传播时会报inplace的错
 		loss = td_error ** 2
 
 		self.optimizer.zero_grad()
 		loss.backward(retain_graph=True)
 		self.optimizer.step()
 
-		return td_error
+		return rd_error_r
 
 
 
@@ -110,7 +110,7 @@ actor = Actor(n_features=N_F, n_actions=N_A, lr=LR_A)
 critic = Critic(n_features=N_F, lr=LR_C)   # we need a good teacher, so the teacher should learn faster than the actor
 
 for i_episode in range(MAX_EPISODE):
-	s = env.reset()
+	s, _ = env.reset()
 	t = 0
 	track_r = []
 
@@ -119,7 +119,7 @@ for i_episode in range(MAX_EPISODE):
 
 		a = actor.choose_action(s)
 
-		s_, r, done, info = env.step(a)
+		s_, r, done, _,  info = env.step(a)
 
 		if done: r = -20
 

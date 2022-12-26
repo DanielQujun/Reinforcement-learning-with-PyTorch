@@ -55,13 +55,14 @@ class DoubleDQN():
 		self.memory_counter += 1
 
 	def choose_action(self, observation):
-		observation = torch.Tensor(observation[np.newaxis, :])
+		observation = torch.Tensor(observation)
+		print(observation)
 		actions_value = self.q_eval(observation)
-		action = torch.max(actions_value, dim=1)[1]  # record action value it get
+		action = torch.max(actions_value, dim=0)[1]  # record action value it get
 		if not hasattr(self, 'q'):
 			self.q = []
 			self.running_q = 0
-		self.running_q = self.running_q*0.99 + 0.01 * torch.max(actions_value, dim=1)[0]
+		self.running_q = self.running_q*0.99 + 0.01 * torch.max(actions_value, dim=0)[0].detach().numpy()
 		self.q.append(self.running_q)
 
 		if np.random.uniform() > self.epsilon:  # randomly choose action

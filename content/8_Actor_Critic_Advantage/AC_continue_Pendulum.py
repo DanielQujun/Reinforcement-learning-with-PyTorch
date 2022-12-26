@@ -43,7 +43,7 @@ class Actor(object):
 
 
 	def normal_dist(self, s):
-		s = torch.Tensor(s[np.newaxis, :])
+		s = torch.Tensor(s)
 		mu, sigma = self.actor_net(s)
 		mu, sigma = (mu*2).squeeze(),  (sigma+0.1).squeeze()
 		normal_dist = torch.distributions.Normal(mu, sigma)   # get the normal distribution of average=mu and std=sigma
@@ -59,12 +59,15 @@ class Actor(object):
 	def learn(self, s, a, td):
 		normal_dist = self.normal_dist(s)
 		log_prob = normal_dist.log_prob(a)   # log_prob get the probability of action a under the distribution of normal_dist
-		exp_v = log_prob * td.float()   # advantage (TD_error) guided loss
-		exp_v += 0.01*normal_dist.entropy()   # Add cross entropy cost to encourage exploration
-		loss = -exp_v   # max(v) = min(-v)
+		# Add cross entropy cost to encourage exploration  # advantage (TD_error) guided loss
+		# exp_v = log_prob * td.float() + 0.01*normal_dist.entropy()
+		exp_v = log_prob * td.float()
+		loss = - exp_v   # max(v) = min(-v)
 
+		torch.autograd.set_detect_anomaly(mode=True)
 		self.optimizer.zero_grad()
 		loss.backward()
+
 		self.optimizer.step()
 
 		return exp_v
@@ -93,23 +96,24 @@ class Critic(object):
 
 		self._build_net()
 
-
 	def _build_net(self):
 		self.critic_net = Critic_Net(self.n_features, self.n_hidden, self.n_output)
 		self.optimizer = torch.optim.Adam(self.critic_net.parameters(), lr=self.lr)
 
-
 	def learn(self, s, r, s_):
-		s, s_ = torch.Tensor(s[np.newaxis, :]), torch.Tensor(s_[np.newaxis, :])
-		v, v_ = self.critic_net(s), self.critic_net(s_)
-		td_error = torch.mean(r + GAMMA * v_.double() - v.double())
+		s = torch.Tensor(s[np.newaxis, :])
+		s_ = torch.Tensor(s_[np.newaxis, :])
+		v  = self.critic_net(s)
+		v_ = self.critic_net(s_)
+		td_error = torch.mean(r + GAMMA * v_ - v)
+		r_td_error = td_error.detach()
 		loss = td_error ** 2
 
 		self.optimizer.zero_grad()
 		loss.backward(retain_graph=True)
 		self.optimizer.step()
 
-		return td_error
+		return r_td_error
 
 
 MAX_EPISODE = 1000
@@ -121,8 +125,8 @@ LR_A = 0.001
 LR_C = 0.01
 
 
-env = gym.make('Pendulum-v0')
-env.seed(1)
+env = gym.make('Pendulum-v1')
+
 env = env.unwrapped
 
 
@@ -135,16 +139,15 @@ critic = Critic(n_features=N_S, lr=LR_C)
 
 
 for i_episode in range(MAX_EPISODE):
-	s = env.reset()
+	s, _ = env.reset()
 	t = 0
 	ep_rs = []
 	while True:
 		if RENDER: env.render()
 		a = actor.choose_action(s)
 
-		s_, r, done, info = env.step(a)
+		s_, r, done, _, info = env.step(np.array([a]))
 		r /= 10
-
 		td_error = critic.learn(s, r, s_)   # gradient = grad[r + gamma * V(s_) - V(s)]
 		actor.learn(s, a, td_error)   # gradient = grad[logPi(s, a) * td_error]
 
